@@ -1,0 +1,10 @@
+django
+django-ninja
+psycopg2-binary
+psycopg
+pgvector
+langchain
+langchain-community
+langchain-postgres
+langchain-text-splitters
+pdfplumber

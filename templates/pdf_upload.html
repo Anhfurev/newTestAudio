@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Upload PDF</title>
+  </head>
+  <body>
+    <h1>Upload a PDF</h1>
+    {% if success %}
+    <p style="color: green">PDF uploaded successfully!</p>
+    {% endif %}
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %} {{ form.as_p }}
+      <button type="submit">Upload</button>
+    </form>
+  </body>
+</html>

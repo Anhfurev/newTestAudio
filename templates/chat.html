@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.ico" />
+    <title>Local AI Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-100 h-screen flex items-center justify-center">
+    <div class="w-full max-w-2xl bg-white rounded-lg shadow-md p-6">
+      <h1 class="text-xl font-semibold mb-4">Local AI Agent</h1>
+      <div
+        id="chat-box"
+        class="h-96 overflow-y-auto mb-4 border rounded-md p-3 space-y-3"
+      ></div>
+
+      <div class="flex gap-2">
+        <input
+          type="text"
+          id="user-input"
+          class="flex-1 border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Ask a question..."
+        />
+        <button
+          id="send-btn"
+          class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+        >
+          Send
+        </button>
+      </div>
+    </div>
+
+    <script>
+      const sessionId =
+        localStorage.getItem("session_id") || crypto.randomUUID();
+      localStorage.setItem("session_id", sessionId);
+
+      const input = document.getElementById("user-input");
+      const sendBtn = document.getElementById("send-btn");
+
+      function addMessage(sender, text, classes) {
+        const chatBox = document.getElementById("chat-box");
+        const div = document.createElement("div");
+        div.className = `p-2 rounded-lg ${classes}`;
+        div.innerHTML = `<strong>${sender}:</strong><br/>${text.replace(/\n/g, "<br>")}`;
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+      }
+
+      async function sendMessage() {
+        const message = input.value.trim();
+        if (!message) return;
+
+        addMessage("You", message, "bg-gray-100 text-right");
+        input.value = "";
+
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, message }),
+        });
+
+        const data = await response.json();
+        addMessage(
+          "AI",
+          data.response || "No response",
+          "bg-blue-100 text-left",
+        );
+      }
+
+      sendBtn.addEventListener("click", sendMessage);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") sendMessage();
+      });
+    </script>
+  </body>
+</html>
