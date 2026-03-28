@@ -13,8 +13,12 @@ class CustomerBalance(models.Model):
     contract_number = models.CharField(max_length=50, unique=True)
     contract_balance = models.DecimalField(max_digits=10, decimal_places=2)
 
+
     def __str__(self) -> str:
         return f"{self.contract_number}: {self.contract_balance}"
+
+    class Meta:
+        db_table = "customer_balance"
 
 
 class ConversationState(models.Model):
