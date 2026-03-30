@@ -1,193 +1,141 @@
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
-
-def _call_llm(llm, prompt):
-    return llm.invoke(prompt)
-import signal
-
-class TimeoutException(Exception):
-    pass
-
-def timeout_handler(signum, frame):
-    raise TimeoutException()
-_vector_store = None
-
-def _get_vector_store():
-    global _vector_store
-    if _vector_store is None:
-        embeddings = _get_embeddings()
-        _vector_store = PGVector(
-            collection_name=PGVECTOR_COLLECTION,
-            connection=PGVECTOR_CONNECTION,
-            embeddings=embeddings,
-        )
-    return _vector_store
-def _clean_mongolian(text):
-    text = text.strip()
-    return text
 import os
-import re
+import json
+import io
+import PyPDF2
+from ninja import File, NinjaAPI, Schema, UploadedFile
+from openai import OpenAI
+from dotenv import load_dotenv
+from .models import CustomerBalance, ConversationState, ProductCertificate # Import your model
 
-from ninja import NinjaAPI, Schema
-
-from .models import ConversationState, CustomerBalance, CustomerIntent
-
-try:
-    from langchain_ollama import OllamaEmbeddings, OllamaLLM
-    from langchain_postgres import PGVector
-except Exception:
-    OllamaEmbeddings = None
-    OllamaLLM = None
-    PGVector = None
-
-
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 api = NinjaAPI()
-
-OLLAMA_MODEL = os.getenv("OLLAMA_TEXT_MODEL", "qwen2.5:7b")
-EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
-
-PGVECTOR_CONNECTION = os.getenv(
-    "PGVECTOR_CONNECTION",
-    "postgresql+psycopg://postgres:Moojig0430@localhost:5432/insurance_db",
-)
-
-PGVECTOR_COLLECTION = os.getenv("PGVECTOR_COLLECTION", "pdf_knowledge_base")
-
 
 class ChatRequest(Schema):
     session_id: str
     message: str
 
 
-def _ollama_llm():
-    if OllamaLLM is None:
-        raise RuntimeError("Ollama not installed")
+def get_contract_balance(contract_number: str) -> str:
+    try:
+        balance = CustomerBalance.objects.get(contract_number=contract_number)
+        return f"Таны гэрээний үлдэгдэл: {balance.contract_balance}₮"
+    except CustomerBalance.DoesNotExist:
+        return "Уучлаарай, системд ийм дугаартай гэрээ олдсонгүй."
 
-    return OllamaLLM(
-        model=OLLAMA_MODEL,
-        base_url="http://127.0.0.1:11434",
-        temperature=0.3,
-        top_p=0.9,
-        repeat_penalty=1.1,
-    )
-
-
-def _get_embeddings():
-    if OllamaEmbeddings is None:
-        return None
-
-    return OllamaEmbeddings(
-        model=EMBED_MODEL,
-        base_url="http://127.0.0.1:11434"
-    )
-
-
-def _extract_contract_number(message: str) -> str:
-    digits = re.findall(r"\d+", message)
-    return digits[0] if digits else message.strip()
-
+from .views import search_knowledge_base
 
 @api.post("/chat")
 def chat_agent(request, payload: ChatRequest):
-    user_msg = payload.message.strip()
-    user_msg_lower = user_msg.lower()
+    user_input = payload.message.strip()
 
-    state, _ = ConversationState.objects.get_or_create(
-        session_id=payload.session_id
-    )
+    # --- 1. Load History ---
+    state_obj, _ = ConversationState.objects.get_or_create(session_id=payload.session_id)
+    messages = state_obj.history
+    if not messages:
+        messages = [{"role": "system", "content": "Та бол Mongolian insurance assistant AI 'Mongol AI'."}]
 
-    # =========================
-    # 1️⃣ Contract flow
-    # =========================
-    if state.awaiting_contract:
-        contract_number = _extract_contract_number(user_msg)
+    # --- 2. Classify Intent FIRST ---
+    from .ai_architecture import classify_user_intent
+    routing_data = classify_user_intent(user_input)
+    intent = routing_data.get("intent")
+    print(f"DEBUG - Detected Intent: {intent}")
 
-        try:
-            balance = CustomerBalance.objects.get(
-                contract_number=contract_number
-            )
+    # --- 3. Execute based on Intent ---
+    bot_response_text = ""
 
-            reply = f"Таны дансны үлдэгдэл: ${balance.contract_balance}"
+    if intent == "check_balance":
+        contract_num = routing_data.get("extracted_id")
+        if contract_num:
+            db_data = get_contract_balance(contract_num)
+            bot_response_text = f"Мэдээллийн сангаас шүүсэн хариу: {db_data}"
+        else:
+            bot_response_text = "Та гэрээний дугаараа оруулна уу."
 
-        except CustomerBalance.DoesNotExist:
-            reply = "Ийм гэрээ олдсонгүй. Дахин шалгана уу."
+    elif intent == "check_certificate":
+        cert_num = routing_data.get("extracted_id")
+        if cert_num:
+            bot_response_text = f"Бүтээгдэхүүний эрх шалгаж байна: {cert_num}..."
+        else:
+            bot_response_text = "Та шалгах бүтээгдэхүүн эсвэл компанийн мэдээллээ оруулна уу."
 
-        state.awaiting_contract = False
-        state.save(update_fields=["awaiting_contract"])
+    elif intent == "rag_search":
+        search_query = routing_data.get("optimized_search_query")
+        rag_context = search_knowledge_base(search_query)
+        final_rag_prompt = f"Контекст:\n{rag_context}\n\nАсуулт: {user_input}"
+        temp_messages = messages.copy()
+        temp_messages.append({"role": "user", "content": final_rag_prompt})
+        ai_response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=temp_messages
+        )
+        bot_response_text = ai_response.choices[0].message.content
 
-        return {"response": reply}
+    else:
+        temp_messages = messages.copy()
+        temp_messages.append({"role": "user", "content": user_input})
+        ai_response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=temp_messages
+        )
+        bot_response_text = ai_response.choices[0].message.content
 
-    # =========================
-    # 2️⃣ Greeting
-    # =========================
-    if any(word in user_msg_lower for word in ["сайн уу", "сайн байна уу", "юу байна"]):
-        state.awaiting_contract = True
-        state.save(update_fields=["awaiting_contract"])
+    # --- 4. Save History and Return ---
+    messages.append({"role": "user", "content": user_input})
+    messages.append({"role": "assistant", "content": bot_response_text})
+    state_obj.history = messages
+    state_obj.save()
+    return {"response": bot_response_text}
 
-        return {"response": "Сайн байна уу! Гэрээний дугаараа бичнэ үү."}
-
-    # =========================
-    # 3️⃣ Intent DB
-    # =========================
-    intent = CustomerIntent.objects.filter(
-        intent__icontains=user_msg_lower
-    ).first()
-
-    if intent:
-        if "balance" in intent.intent.lower():
-            state.awaiting_contract = True
-            state.save(update_fields=["awaiting_contract"])
-
-            return {
-                "response": f"{intent.answer}\n\nГэрээний дугаараа бичнэ үү."
-            }
-
-        return {"response": intent.answer}
-
-    # =========================
-    # 4️⃣ RAG (PGVector)
-    # =========================
-    if PGVector and ("?" in user_msg or any(word in user_msg_lower for word in ["юу", "яаж", "хэзээ"])) and len(user_msg) > 5:
-        try:
-            vector_store = _get_vector_store()
-            docs = vector_store.similarity_search(user_msg, k=3)
-
-            if docs:
-                context = "\n\n".join([
-                    f"- {d.page_content.strip()[:300]}" for d in docs
-                ])
-
-                prompt = f"""<|im_start|>system\nYou are a professional assistant fluent in Mongolian. Always respond naturally and correctly in Mongolian. Avoid awkward translation style.\n<|im_end|>\n\n<|im_start|>user\nДараах мэдээллийг ашиглан зөвхөн Монгол хэл дээр хариулна уу. Хэрэв мэдээлэл байхгүй бол 'Мэдэхгүй байна' гэж хэлнэ. Use the context ONLY if relevant. Do not copy blindly.\n\n{context}\n\nАсуулт: {user_msg}\n<|im_end|>\n\n<|im_start|>assistant\n"""
-
-                llm = _ollama_llm()
-                with ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(_call_llm, llm, prompt)
-                    try:
-                        answer = future.result(timeout=20)
-                    except TimeoutError:
-                        return {"response": "AI удаан байна. Дахин оролдоно уу."}
-                answer = _clean_mongolian(answer)
-
-                return {"response": answer}
-
-        except Exception as e:
-            print("RAG ERROR:", str(e))
-
-    # =========================
-    # 5️⃣ AI fallback
-    # =========================
+@api.post("/upload-pdf")
+def upload_and_process_pdf(request, file: UploadedFile = File(...)):
     try:
-        llm = _ollama_llm()
-        prompt = f"""<|im_start|>system\nYou are a professional Mongolian language assistant.\nAlways respond in natural, fluent Mongolian.\n<|im_end|>\n\n<|im_start|>user\n{user_msg}\n<|im_end|>\n\n<|im_start|>assistant\n"""
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_call_llm, llm, prompt)
-            try:
-                answer = future.result(timeout=20)
-            except TimeoutError:
-                return {"response": "AI удаан байна. Дахин оролдоно уу."}
-        answer = _clean_mongolian(answer)
+        # 1. Read the PDF directly from the uploaded memory bytes
+        pdf_text = ""
+        pdf_bytes = file.read()
+        pdf_file = io.BytesIO(pdf_bytes)
+        reader = PyPDF2.PdfReader(pdf_file)
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                pdf_text += text + "\n"
 
-        return {"response": answer}
+        # 2. Ask OpenAI to extract the data
+        prompt = f"""
+        You are a data extraction assistant. Read the following Mongolian document and extract the product and company details.
+        Return ONLY a JSON object with these exact keys. Use YYYY-MM-DD format for dates. If a field is missing, return null.
+        
+        Keys: "product_name", "start_date", "end_date", "company_name", "company_register"
+        
+        Document Text:
+        {pdf_text}
+        """
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={ "type": "json_object" }
+        )
+
+        ai_data = json.loads(response.choices[0].message.content)
+
+        # 3. Save the extracted data to your Database
+        new_product = ProductCertificate.objects.create(
+            product_name=ai_data.get("product_name", "Тодорхойгүй бүтээгдэхүүн"),
+            start_date=ai_data.get("start_date"),
+            end_date=ai_data.get("end_date"),
+            company_name=ai_data.get("company_name", "Тодорхойгүй компани"),
+            company_register=ai_data.get("company_register", "")
+        )
+        
+        # Optional: Save the actual PDF file to the model
+        # new_product.source_pdf.save(file.name, file)
+        
+        return {
+            "success": True, 
+            "message": f"{new_product.product_name} амжилттай хадгалагдлаа!",
+            "extracted_data": ai_data
+        }
 
     except Exception as e:
-        print("OLLAMA ERROR:", str(e))
-        return {"response": "AI ажиллахгүй байна. Console-г шалгана уу."}
+        return {"success": False, "error": str(e)}

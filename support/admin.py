@@ -17,5 +17,4 @@ class CustomerBalanceAdmin(admin.ModelAdmin):
 
 @admin.register(ConversationState)
 class ConversationStateAdmin(admin.ModelAdmin):
-    list_display = ("session_id", "awaiting_contract")
     search_fields = ("session_id",)

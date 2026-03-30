@@ -8,3 +8,6 @@ langchain-community
 langchain-postgres
 langchain-text-splitters
 pdfplumber
+openai
+python-dotenv
+langchain-openai
