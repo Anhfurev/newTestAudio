@@ -2,6 +2,8 @@ import os
 import json
 import io
 import PyPDF2
+from django.db import connection
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from ninja import File, NinjaAPI, Schema, UploadedFile
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -70,6 +72,11 @@ def chat_agent(request, payload: ChatRequest):
             messages=temp_messages
         )
         bot_response_text = ai_response.choices[0].message.content
+        print(f"DEBUG - AI is searching pgvector for: {search_query}")
+        rag_context = search_knowledge_base(search_query)
+        print(f"DEBUG - Database returned this context: {rag_context}") 
+        
+        final_rag_prompt = f"Контекст:\n{rag_context}\n\nАсуулт: {user_input}"
 
     else:
         temp_messages = messages.copy()
@@ -128,13 +135,64 @@ def upload_and_process_pdf(request, file: UploadedFile = File(...)):
             company_register=ai_data.get("company_register", "")
         )
         
-        # Optional: Save the actual PDF file to the model
-        # new_product.source_pdf.save(file.name, file)
+       
         
         return {
             "success": True, 
             "message": f"{new_product.product_name} амжилттай хадгалагдлаа!",
             "extracted_data": ai_data
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+@api.post("/upload-policy-pdf")
+def upload_policy_pdf(request, file: UploadedFile = File(...)):
+    try:
+        # 1. Read all the text from the uploaded PDF
+        raw_text = ""
+        pdf_bytes = file.read()
+        pdf_file = io.BytesIO(pdf_bytes)
+        
+        reader = PyPDF2.PdfReader(pdf_file)
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                raw_text += text + "\n"
+
+        if not raw_text.strip():
+            return {"success": False, "error": "PDF дотроос текст олдсонгүй (No text found in PDF)."}
+
+        # 2. Cut the massive text into smart chunks
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,   # 1000 characters per chunk
+            chunk_overlap=200, # 200 character overlap so we don't lose context
+            separators=["\n\n", "\n", ".", " "]
+        )
+        chunks = text_splitter.split_text(raw_text)
+
+        # 3. Embed and Save each chunk to the database
+        inserted_count = 0
+        with connection.cursor() as cursor:
+            for chunk in chunks:
+                # Turn the text chunk into a vector embedding using OpenAI
+                response = client.embeddings.create(
+                    model="text-embedding-3-small",
+                    input=chunk
+                )
+                embedding = response.data[0].embedding
+
+                # Insert into your pgvector table
+                # (Assuming your table is named 'rag_embeddings' with 'text_chunk' and 'embedding' columns)
+                cursor.execute("""
+                    INSERT INTO rag_embeddings (text_chunk, embedding)
+                    VALUES (%s, %s::vector)
+                """, [chunk, embedding])
+                
+                inserted_count += 1
+
+        return {
+            "success": True, 
+            "message": f"Амжилттай! {file.name} файлыг уншиж, {inserted_count} хэсэгт хувааж мэдээллийн санд хадгаллаа."
         }
 
     except Exception as e:
