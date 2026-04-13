@@ -53,7 +53,7 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": "insurance_db",
-        "USER": "postgres",
+        "USER": "postgres", 
         "PASSWORD": "Moojig0430.",
         "HOST": "127.0.0.1",
         "PORT": "5432", 
@@ -68,4 +68,5 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"]
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

@@ -1,78 +1,617 @@
 <!doctype html>
-<html lang="en">
+<html lang="mn">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" href="/favicon.ico" />
-    <title>Local AI Agent</title>
+    <title>Live Talker - AI Voice Assistant</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @keyframes pulse-ring {
+        0% {
+          transform: scale(0.33);
+        }
+        80%,
+        100% {
+          opacity: 0;
+        }
+      }
+      .pulse-active {
+        animation: pulse-ring 1.25s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+      }
+      .dot-flashing {
+        animation: dot-flashing 1s infinite linear alternate;
+      }
+      @keyframes dot-flashing {
+        0% {
+          background-color: #3b82f6;
+        }
+        50%,
+        100% {
+          background-color: #ebebeb;
+        }
+      }
+    </style>
   </head>
-  <body class="bg-gray-100 h-screen flex items-center justify-center">
-    <div class="w-full max-w-2xl bg-white rounded-lg shadow-md p-6">
-      <h1 class="text-xl font-semibold mb-4">Local AI Agent</h1>
-      <div
-        id="chat-box"
-        class="h-96 overflow-y-auto mb-4 border rounded-md p-3 space-y-3"
-      ></div>
-
-      <div class="flex gap-2">
-        <input
-          type="text"
-          id="user-input"
-          class="flex-1 border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Ask a question..."
-        />
-        <button
-          id="send-btn"
-          class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-        >
-          Send
-        </button>
+  <body class="bg-gray-50 font-sans h-screen flex flex-col">
+    <header
+      class="bg-white border-b p-4 flex justify-between items-center shadow-sm"
+    >
+      <div class="flex items-center gap-2">
+        <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+        <h1 class="font-bold text-xl text-gray-800">Live Talker AI</h1>
       </div>
+      <button
+        onclick="location.reload()"
+        class="text-sm text-gray-500 hover:text-gray-800"
+      >
+        Шинэчлэх
+      </button>
+    </header>
+
+    <main
+      id="chat-container"
+      class="flex-1 overflow-y-auto p-6 space-y-4 max-w-3xl mx-auto w-full"
+    >
+      <div
+        class="flex mr-auto bg-white border rounded-2xl p-4 shadow-sm max-w-[80%] border-l-4 border-blue-500"
+      >
+        <p class="text-gray-700">
+          Сайн байна уу? Би таны дуут туслах байна. Микрофон дээр дарж ярина уу.
+        </p>
+      </div>
+    </main>
+
+    <div
+      id="status-area"
+      class="h-12 flex flex-col items-center justify-center space-y-1"
+    >
+      <div id="visualizer" class="hidden flex items-end gap-1 h-6">
+        <div class="w-1 bg-blue-500 h-2 animate-[bounce_0.8s_infinite]"></div>
+        <div class="w-1 bg-blue-400 h-4 animate-[bounce_1.2s_infinite]"></div>
+        <div class="w-1 bg-blue-600 h-6 animate-[bounce_0.9s_infinite]"></div>
+        <div class="w-1 bg-blue-300 h-3 animate-[bounce_1.1s_infinite]"></div>
+        <div class="w-1 bg-blue-500 h-5 animate-[bounce_1s_infinite]"></div>
+      </div>
+      <p
+        id="status-text"
+        class="text-xs text-gray-400 uppercase tracking-widest font-bold"
+      >
+        Бэлэн
+      </p>
     </div>
 
+    <div
+      class="p-8 bg-white border-t flex flex-col items-center justify-center space-y-4"
+    >
+      <div class="relative flex items-center justify-center">
+        <div
+          id="mic-pulse"
+          class="absolute w-24 h-24 bg-blue-200 rounded-full hidden"
+        ></div>
+
+        <button
+          id="mic-btn"
+          class="relative z-10 bg-blue-600 hover:bg-blue-700 p-8 rounded-full shadow-2xl transition-all active:scale-95 group"
+        >
+          <svg
+            id="mic-icon"
+            class="w-10 h-10 text-white"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+            ></path>
+          </svg>
+          <svg
+            id="stop-icon"
+            class="w-10 h-10 text-white hidden"
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z"
+              clip-rule="evenodd"
+            />
+          </svg>
+        </button>
+      </div>
+
+      <p class="text-sm text-gray-400">Ярихын тулд нэг дарна уу</p>
+    </div>
+
+    <!-- Text input row -->
+    <div
+      class="px-4 pb-4 bg-white border-t pt-3 flex items-center gap-2 max-w-3xl mx-auto w-full"
+    >
+      <input
+        id="text-input"
+        type="text"
+        placeholder="Мессеж бичнэ үү..."
+        class="flex-1 border border-gray-300 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+      />
+      <button
+        id="send-btn"
+        class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-50"
+      >
+        Send
+      </button>
+    </div>
+
+    <audio id="audio-player" class="hidden"></audio>
+
     <script>
-      const sessionId =
-        localStorage.getItem("session_id") || crypto.randomUUID();
-      localStorage.setItem("session_id", sessionId);
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+      let recognition = null;
+      let isRecording = false;
+      const sessionId = "session_" + Math.random().toString(36).substr(2, 9);
 
-      const input = document.getElementById("user-input");
+      const micBtn = document.getElementById("mic-btn");
+      const micPulse = document.getElementById("mic-pulse");
+      const micIcon = document.getElementById("mic-icon");
+      const stopIcon = document.getElementById("stop-icon");
+      const statusText = document.getElementById("status-text");
+      const visualizer = document.getElementById("visualizer");
+      const chatContainer = document.getElementById("chat-container");
+      const audioPlayer = document.getElementById("audio-player");
+      const textInput = document.getElementById("text-input");
       const sendBtn = document.getElementById("send-btn");
+      let chatHistory = [];
 
-      function addMessage(sender, text, classes) {
-        const chatBox = document.getElementById("chat-box");
-        const div = document.createElement("div");
-        div.className = `p-2 rounded-lg ${classes}`;
-        div.innerHTML = `<strong>${sender}:</strong><br/>${text.replace(/\n/g, "<br>")}`;
-        chatBox.appendChild(div);
-        chatBox.scrollTop = chatBox.scrollHeight;
+      // ── Audio double-buffer pipeline ──────────────────────────────────────
+      // activePl  → currently playing
+      // standbyPl → pre-loading/decoding the NEXT chunk while activePl plays
+      // Swapping them at onended gives ~0 ms gap between sentences.
+      const activePlRef = {
+        el: document.getElementById("audio-player"),
+        url: null,
+      };
+      const standbyPlRef = { el: new Audio(), url: null };
+      standbyPlRef.el.preload = "auto";
+      // activePlRef / standbyPlRef.el are swapped in-place to keep the
+      // rest of the code referencing a stable object.
+
+      let isTtsPlaying = false;
+      let ttsGeneratedMap = new Map(); // id → Blob | null
+      let ttsNextBuildId = 0;
+      let ttsNextPlayId = 0;
+      let ttsPendingBuilds = 0;
+      let standbyPreloadId = -1; // which chunk ID is pre-loaded in standbyPl
+
+      const TTS_MIN_WORDS = 5;
+      const TTS_MIN_CHARS = 30;
+      const TTS_TARGET_WORDS = 14;
+      const TTS_TARGET_CHARS = 90;
+
+      // UI-ийг шинэчлэх функц
+      function updateUI(state) {
+        switch (state) {
+          case "idle":
+            micBtn.classList.replace("bg-red-600", "bg-blue-600");
+            micBtn.disabled = false;
+            micPulse.classList.add("hidden");
+            micIcon.classList.remove("hidden");
+            stopIcon.classList.add("hidden");
+            statusText.innerText = "Бэлэн";
+            visualizer.classList.add("hidden");
+            break;
+          case "recording":
+            micBtn.classList.replace("bg-blue-600", "bg-red-600");
+            micPulse.classList.remove("hidden");
+            micPulse.classList.add("pulse-active");
+            micIcon.classList.add("hidden");
+            stopIcon.classList.remove("hidden");
+            statusText.innerText = "Сонсож байна...";
+            break;
+          case "thinking":
+            micBtn.disabled = true;
+            micBtn.classList.replace("bg-red-600", "bg-gray-400");
+            micPulse.classList.add("hidden");
+            statusText.innerText = "Бодож байна...";
+            break;
+          case "speaking":
+            statusText.innerText = "Ярьж байна...";
+            visualizer.classList.remove("hidden");
+            break;
+        }
       }
 
-      async function sendMessage() {
-        const message = input.value.trim();
-        if (!message) return;
+      // Add a message bubble — returns the <p> element for streaming text appending
+      function addMessage(sender, text, isAi = false) {
+        const div = document.createElement("div");
+        div.className = isAi
+          ? "flex mr-auto bg-white border rounded-2xl p-4 shadow-sm max-w-[80%] border-l-4 border-blue-500 animate-fade-in"
+          : "flex ml-auto bg-blue-600 text-white rounded-2xl p-4 shadow-sm max-w-[80%] animate-fade-in";
+        const p = document.createElement("p");
+        p.textContent = text;
+        div.appendChild(p);
+        chatContainer.appendChild(div);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+        return p;
+      }
 
-        addMessage("You", message, "bg-gray-100 text-right");
-        input.value = "";
+      function pullReadyTtsSegments(buffer, flush = false) {
+        const ready = [];
+        let lastCut = 0;
 
-        const response = await fetch("/api/chat", {
+        for (let i = 0; i < buffer.length; i += 1) {
+          const ch = buffer[i];
+          if (!".!?,\n".includes(ch)) continue;
+
+          const candidate = buffer.slice(lastCut, i + 1).trim();
+          if (!candidate) continue;
+
+          const words = candidate.split(/\s+/).filter(Boolean).length;
+          const chars = candidate.length;
+          const isStrongStop = ".!?\n".includes(ch);
+
+          const shouldEmit =
+            (isStrongStop &&
+              (words >= TTS_MIN_WORDS || chars >= TTS_MIN_CHARS)) ||
+            words >= TTS_TARGET_WORDS ||
+            chars >= TTS_TARGET_CHARS;
+
+          if (shouldEmit) {
+            ready.push(candidate);
+            lastCut = i + 1;
+          }
+        }
+
+        let rest = buffer.slice(lastCut);
+        if (flush && rest.trim()) {
+          ready.push(rest.trim());
+          rest = "";
+        }
+
+        return { ready, rest };
+      }
+
+      function enqueueTTS(text) {
+        const clean = (text || "").trim();
+        if (!clean) return;
+
+        const item = { id: ttsNextBuildId++, text: clean };
+        buildTTSInBackground(item);
+      }
+
+      async function fetchTTSBlob(text) {
+        const response = await fetch("/api/tts-stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sessionId, message }),
+          body: JSON.stringify({ text }),
         });
 
-        const data = await response.json();
-        addMessage(
-          "AI",
-          data.response || "No response",
-          "bg-blue-100 text-left",
-        );
+        if (!response.ok || !response.body) {
+          throw new Error("TTS stream request failed.");
+        }
+
+        return await response.blob();
       }
 
-      sendBtn.addEventListener("click", sendMessage);
-      input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") sendMessage();
+      async function buildTTSInBackground(item) {
+        ttsPendingBuilds += 1;
+        try {
+          const blob = await fetchTTSBlob(item.text);
+          ttsGeneratedMap.set(item.id, blob);
+          // If this is the very next chunk to play, pre-load it into standbyPl
+          // so the browser starts decoding while activePl is still playing.
+          _preloadStandby();
+        } catch (error) {
+          console.error("TTS build error:", error);
+          ttsGeneratedMap.set(item.id, null);
+        } finally {
+          ttsPendingBuilds -= 1;
+          processTTSQueue();
+        }
+      }
+
+      function _preloadStandby() {
+        const blob = ttsGeneratedMap.get(ttsNextPlayId);
+        if (!blob || standbyPreloadId === ttsNextPlayId) return;
+        // Revoke old standby URL if any
+        if (standbyPlRef.url) {
+          URL.revokeObjectURL(standbyPlRef.url);
+        }
+        standbyPlRef.url = URL.createObjectURL(blob);
+        standbyPlRef.el.src = standbyPlRef.url;
+        standbyPlRef.el.load(); // triggers browser pre-decode
+        standbyPreloadId = ttsNextPlayId;
+      }
+
+      async function processTTSQueue() {
+        if (isTtsPlaying) return;
+
+        while (ttsGeneratedMap.has(ttsNextPlayId)) {
+          const blob = ttsGeneratedMap.get(ttsNextPlayId);
+          ttsGeneratedMap.delete(ttsNextPlayId);
+
+          if (!blob) {
+            ttsNextPlayId += 1;
+            continue;
+          }
+
+          isTtsPlaying = true;
+          updateUI("speaking");
+
+          // ── Seamless swap: use pre-loaded standby if it's ready ──────────
+          if (standbyPreloadId === ttsNextPlayId && standbyPlRef.url) {
+            // Swap active ↔ standby players (swap the wrapped objects)
+            const tmpEl = activePlRef.el;
+            activePlRef.el = standbyPlRef.el;
+            standbyPlRef.el = tmpEl;
+            const tmpUrl = activePlRef.url;
+            activePlRef.url = standbyPlRef.url;
+            standbyPlRef.url = tmpUrl;
+            standbyPreloadId = -1;
+            // Re-attach event listeners after swap
+            _attachPlayerListeners();
+          } else {
+            // Fall back to direct load (standby wasn't ready in time)
+            if (activePlRef.url) URL.revokeObjectURL(activePlRef.url);
+            activePlRef.url = URL.createObjectURL(blob);
+            activePlRef.el.src = activePlRef.url;
+          }
+
+          ttsNextPlayId += 1;
+
+          // Pre-load the chunk AFTER next into standby immediately
+          _preloadStandby();
+
+          try {
+            await activePlRef.el.play();
+          } catch (error) {
+            console.error("TTS play error:", error);
+            if (activePlRef.url) {
+              URL.revokeObjectURL(activePlRef.url);
+              activePlRef.url = null;
+            }
+            isTtsPlaying = false;
+            continue;
+          }
+
+          return; // exit; onended will call processTTSQueue for next chunk
+        }
+
+        if (
+          !isTtsPlaying &&
+          ttsPendingBuilds === 0 &&
+          ttsGeneratedMap.size === 0
+        )
+          updateUI("idle");
+      }
+
+      function waitForTTSDrain() {
+        return new Promise((resolve) => {
+          const check = () => {
+            if (
+              !isTtsPlaying &&
+              ttsPendingBuilds === 0 &&
+              ttsGeneratedMap.size === 0
+            ) {
+              resolve();
+              return;
+            }
+            setTimeout(check, 80);
+          };
+          check();
+        });
+      }
+
+      function _onPlayerEnded() {
+        if (activePlRef.url) {
+          URL.revokeObjectURL(activePlRef.url);
+          activePlRef.url = null;
+        }
+        isTtsPlaying = false;
+        processTTSQueue();
+      }
+
+      function _onPlayerError() {
+        if (activePlRef.url) {
+          URL.revokeObjectURL(activePlRef.url);
+          activePlRef.url = null;
+        }
+        isTtsPlaying = false;
+        processTTSQueue();
+      }
+
+      // Attach listeners to whichever element is currently activePl.
+      // Called once on init and again after a player swap.
+      function _attachPlayerListeners() {
+        // Remove from both to avoid duplicates after swaps
+        [activePlRef.el, standbyPlRef.el].forEach((el) => {
+          el.removeEventListener("ended", _onPlayerEnded);
+          el.removeEventListener("error", _onPlayerError);
+        });
+        activePlRef.el.addEventListener("ended", _onPlayerEnded);
+        activePlRef.el.addEventListener("error", _onPlayerError);
+      }
+
+      _attachPlayerListeners();
+
+      // Send text message via chat-stream (SSE streaming)
+      async function sendTextMessage(preFilledMessage = null) {
+        const message = (preFilledMessage ?? textInput.value).trim();
+        if (!message) return;
+
+        textInput.value = "";
+        sendBtn.disabled = true;
+        micBtn.disabled = true;
+        addMessage("Та", message, false);
+
+        const aiP = addMessage("AI", "", true);
+        statusText.innerText = "Бодож байна...";
+        isTtsPlaying = false;
+        ttsGeneratedMap = new Map();
+        ttsNextBuildId = 0;
+        ttsNextPlayId = 0;
+        ttsPendingBuilds = 0;
+        standbyPreloadId = -1;
+        // Reset both players
+        [activePlRef, standbyPlRef].forEach((ref) => {
+          ref.el.pause();
+          ref.el.removeAttribute("src");
+          ref.el.load();
+          if (ref.url) {
+            URL.revokeObjectURL(ref.url);
+            ref.url = null;
+          }
+        });
+        _attachPlayerListeners();
+
+        try {
+          const response = await fetch("/api/chat-stream", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session_id: sessionId,
+              message,
+              history: chatHistory,
+            }),
+          });
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let fullReply = "";
+          let ttsBuffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const lines = decoder.decode(value).split("\n");
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+
+                  // ── Filler: pre-built MP3 → fetch blob once, enqueue directly ──
+                  if (data.filler_url) {
+                    // Fetch the static file as a blob and push straight into the
+                    // double-buffer queue — zero-latency, no edge-tts round-trip.
+                    const fillerUrl = data.filler_url;
+                    const fillerItemId = ttsNextBuildId++;
+                    ttsPendingBuilds += 1;
+                    fetch(fillerUrl)
+                      .then((r) => r.blob())
+                      .then((blob) => {
+                        ttsGeneratedMap.set(fillerItemId, blob);
+                        _preloadStandby();
+                      })
+                      .catch(() => ttsGeneratedMap.set(fillerItemId, null))
+                      .finally(() => {
+                        ttsPendingBuilds -= 1;
+                        processTTSQueue();
+                      });
+                  }
+
+                  if (data.reply) {
+                    fullReply += data.reply;
+                    ttsBuffer += data.reply;
+                    aiP.textContent = fullReply;
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+                    const { ready, rest } = pullReadyTtsSegments(
+                      ttsBuffer,
+                      false,
+                    );
+                    ttsBuffer = rest;
+                    for (const sentence of ready) {
+                      enqueueTTS(sentence);
+                    }
+                  }
+                } catch (_) {}
+              }
+            }
+          }
+
+          const flushed = pullReadyTtsSegments(ttsBuffer, true);
+          for (const sentence of flushed.ready) {
+            enqueueTTS(sentence);
+          }
+
+          // Keep last 20 messages for context
+          chatHistory.push({ role: "user", content: message });
+          chatHistory.push({ role: "assistant", content: fullReply });
+          if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+
+          // Voice output starts from the first complete sentence while later text keeps streaming.
+          await waitForTTSDrain();
+        } catch (error) {
+          aiP.textContent = "Error: Could not connect to server.";
+          console.error(error);
+          updateUI("idle");
+        } finally {
+          sendBtn.disabled = false;
+          micBtn.disabled = false;
+          if (audioPlayer.paused) updateUI("idle");
+        }
+      }
+
+      sendBtn.addEventListener("click", sendTextMessage);
+      textInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          sendTextMessage();
+        }
       });
+
+      micBtn.addEventListener("click", async () => {
+        if (!isRecording) {
+          startRecording();
+        } else {
+          stopRecording();
+        }
+      });
+
+      async function startRecording() {
+        if (!SpeechRecognition) {
+          alert("Таны browser SpeechRecognition дэмжихгүй байна.");
+          return;
+        }
+
+        recognition = new SpeechRecognition();
+        recognition.lang = "mn-MN";
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onresult = async (event) => {
+          const transcript = (event.results?.[0]?.[0]?.transcript || "").trim();
+          if (!transcript) return;
+
+          textInput.value = transcript;
+          await sendTextMessage(transcript);
+        };
+
+        recognition.onerror = (event) => {
+          console.error("Speech recognition error:", event.error);
+          updateUI("idle");
+        };
+
+        recognition.onend = () => {
+          isRecording = false;
+          if (statusText.innerText !== "Бодож байна...") {
+            updateUI("idle");
+          }
+        };
+
+        recognition.start();
+        isRecording = true;
+        updateUI("recording");
+      }
+
+      function stopRecording() {
+        if (recognition) {
+          recognition.stop();
+        }
+        isRecording = false;
+        updateUI("thinking");
+      }
     </script>
   </body>
 </html>

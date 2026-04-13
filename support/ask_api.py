@@ -2,11 +2,10 @@ import os
 from ninja import NinjaAPI, Schema
 from django.shortcuts import get_object_or_404
 from .models import Contract, Product
-from openai import OpenAI
 from dotenv import load_dotenv
+from .llm_client import CHAT_MODEL, INTENT_MODEL, client
 
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 api = NinjaAPI()
 
 class QuestionSchema(Schema):
@@ -22,14 +21,19 @@ def ask_agent(request, payload: QuestionSchema):
     
     # 1. Intent Detection
     intent_prompt = f"""
-    Хэрэглэгчийн асуулт: '{question}'
-    Хэрэв асуулт үлдэгдэл, гэрээ, эхлэх/дуусах хугацаа, бүтээгдэхүүний тухай байвал 'DB' гэж буцаа.
-    Хэрэв ерөнхий мэдээлэл, дүрэм журам, зааврын тухай байвал 'PDF' гэж буцаа.
-    Зөвхөн 'DB' эсвэл 'PDF' гэдэг үгийг л буцаана уу.
-    """
+Analyze the following User Question and classify its intent into one of two categories: 'DB' or 'PDF'.
+
+RULES FOR CLASSIFICATION:
+- Return 'DB' if the question is asking about a specific user's balance, contract number, start/end dates, or a specific insurance product list.
+- Return 'PDF' if the question is asking about general information, rules, policies, terms, or instructions.
+
+CRITICAL CONSTRAINT: You must output ONLY the exact word 'DB' or 'PDF'. Do not add punctuation, explanations, or any other words.
+
+User Question: '{question}'
+"""
     
     intent_response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model=INTENT_MODEL,
         messages=[{"role": "user", "content": intent_prompt}],
         temperature=0
     ).choices[0].message.content.strip()
@@ -47,13 +51,17 @@ def ask_agent(request, payload: QuestionSchema):
 
     # 3. Generation
     final_prompt = f"""
-    Чи бол Монгол хэлээр хариулдаг ухаалаг туслах. Дараах мэдээлэлд үндэслэн хэрэглэгчийн асуултад товч, тодорхой, эелдэгээр хариул.
-    Мэдээлэл (Context): {context}
-    Хэрэглэгчийн асуулт: {question}
-    """
+You are a smart, polite, and helpful assistant. 
+Answer the user's question concisely and clearly based ONLY on the provided Context.
+
+CRITICAL RULE: You MUST write your final response entirely in the Mongolian language (Cyrillic). Do not reply in English.
+
+Context: {context}
+User Question: {question}
+"""
 
     answer = client.chat.completions.create(
-        model="gpt-4",
+        model=CHAT_MODEL,
         messages=[{"role": "system", "content": final_prompt}]
     ).choices[0].message.content
 

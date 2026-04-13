@@ -11,3 +11,6 @@ pdfplumber
 openai
 python-dotenv
 langchain-openai
+transformers
+torch
+edge-tts

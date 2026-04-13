@@ -1,60 +1,85 @@
 import os
 import json
-import psycopg2 # Make sure pip install psycopg2-binary is installed
 from openai import OpenAI
 from dotenv import load_dotenv
 
+# ==========================================
+# 1. DJANGO ТОХИРГОО (Скриптийг гаднаас ажиллуулах үед)
+# ==========================================
+import django
+# АНХААР: 'your_project_name' гэдгийг өөрийнхөө Django төслийн жинхэнэ нэрээр солиорой! 
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'agentapp.settings') 
+django.setup()
+
+from django.db import connection
+
+# ==========================================
+# 2. OPENAI ТОХИРГОО
+# ==========================================
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Connect directly to your PostgreSQL database
-conn = psycopg2.connect(
-    dbname="insurance_db",
-    user="postgres",
-    password="Moojig0430", # Your local postgres password
-    host="localhost",
-    port="5432"
-)
-cursor = conn.cursor()
+KNOWLEDGE_BASE_DIR = "knowledge_base"
+all_data = []
 
-def process_json_to_pgvector(json_file_path):
-    print(f"Reading {json_file_path}...")
-    
-    with open(json_file_path, 'r', encoding='utf-8') as file:
-        data = json.load(file)
+# ==========================================
+# 3. ХАВТАСНААС БҮХ JSON ФАЙЛЫГ УНШИХ
+# ==========================================
+print("🔍 Knowledge base хавтсыг уншиж байна...")
+for filename in os.listdir(KNOWLEDGE_BASE_DIR):
+    if filename.endswith(".json"):
+        filepath = os.path.join(KNOWLEDGE_BASE_DIR, filename)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                file_data = json.load(f)
+                all_data.extend(file_data)
+                print(f"✅ Уншсан: {len(file_data)} дүрэм -> {filename} файлаас")
+        except json.JSONDecodeError:
+            print(f"⚠️ Анхаар: '{filename}' файл хоосон эсвэл формат алдаатай байна.")
 
-    if isinstance(data, dict):
-        data = [data]
+print(f"\n🚀 Нийт бааз руу оруулахад бэлэн болсон дүрэм: {len(all_data)}\n")
 
-    inserted_count = 0
+# ==========================================
+# 4. ШИНЭ JSON БҮТЦЭЭР МЕТАДАТА-ТАЙ ХАДГАЛАХ
+# ==========================================
+with connection.cursor() as cursor:
+    # (Сонголттой) Хуучин өгөгдлөө цэвэрлэхийг хүсвэл доорх мөрийг идэвхжүүлж болно:
+    # cursor.execute("DELETE FROM rag_embeddings")
+    cursor.execute("TRUNCATE TABLE rag_embeddings;") 
+    print("🧹 Хуучин өгөгдлийг цэвэрлэлээ...")
 
-    for item in data:
-        # 1. Create a clean text version for the AI to read
-        text_chunk = " ".join([f"{str(k).replace('_', ' ').title()}: {str(v)}." for k, v in item.items()])
-        
-        if not text_chunk.strip():
+    for item in all_data:
+        # 🚨 ХАМГААЛАЛТ: Шинэ формат мөн эсэхийг шалгах
+        if "training_data" not in item:
+            print(f"⚠️ Алгаслаа: '{item.get('category', 'Unknown')}' хуучин форматтай байна.")
             continue
 
-        # 2. Turn the text into a Vector (This is the pgvector part)
+        # 1. Хайлт хийхэд зориулсан текст бэлтгэх (Embedding-д зориулав)
+        primary = item["training_data"]["primary_question"]
+        alternatives = ", ".join(item["training_data"]["alternative_questions"])
+        search_text = f"Intent: {item['intent_name']}. Questions: {primary}, {alternatives}"
+        
+        # 2. AI-д уншуулах үндсэн хариулт (Text Chunk)
+        answer = item["knowledge_base"]["static_answer"]
+        final_chunk = f"Category: {item['intent_name']}. Response: {answer}"
+
+        # 3. БҮТЭН JSON-ийг Metadata болгож бэлтгэх (JSONB-д зориулсан string)
+        metadata_json = json.dumps(item)
+
+        # 4. OpenAI-аар Embedding (Вектөр тоо) үүсгэх
+        print(f"🧠 Embedding үүсгэж байна: {item['intent_id']}...")
         response = client.embeddings.create(
             model="text-embedding-3-small",
-            input=text_chunk
+            input=search_text
         )
         embedding = response.data[0].embedding
 
-        # 3. Save to DB: The text, the ORIGINAL JSON (metadata), and the Vector
+        # 5. PostgreSQL руу бүх 3 утгыг (Chunk, Embedding, Metadata) хадгалах
         cursor.execute("""
-            INSERT INTO rag_embeddings (text_chunk, metadata, embedding)
-            VALUES (%s, %s::jsonb, %s::vector)
-        """, (text_chunk, json.dumps(item), embedding))
+            INSERT INTO rag_embeddings (text_chunk, embedding, metadata)
+            VALUES (%s, %s::vector, %s::jsonb)
+        """, [final_chunk, embedding, metadata_json])
         
-        inserted_count += 1
+        print(f"✅ Бааз руу амжилттай орлоо: {item['intent_id']}")
 
-    # Commit the changes to the database
-    conn.commit()
-    print(f"Success! {inserted_count} JSON objects turned into pgvectors.")
-
-# Run the function!
-if __name__ == "__main__":
-    # Replace with the name of the JSON file you are trying to upload
-    process_json_to_pgvector("test_policy.json")
+print("\n🎉 БАЯР ХҮРГЭЕ! Бүх өгөгдөл Метадата-тайгаа амжилттай орлоо.")

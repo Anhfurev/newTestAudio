@@ -1,0 +1,40 @@
+[
+  {
+    "intent_id": "greet_001",
+    "intent_name": "rag_search",
+    "training_data": {
+      "primary_question": "Сайн уу?",
+      "alternative_questions": [
+        "Юу байна даа?",
+        "Мэнд",
+        "Сайн байна уу",
+        "Hi",
+        "Hello",
+        "Өглөөний мэнд"
+      ]
+    },
+    "knowledge_base": {
+      "static_answer": "Сайн байна уу! Даатгалын ухаалаг системд тавтай морил. Танд юугаар туслах вэ?",
+      "pdf_context": []
+    },
+    "live_data_mapping": null
+  },
+  {
+    "intent_id": "greet_002",
+    "intent_name": "rag_search",
+    "training_data": {
+      "primary_question": "Баярлалаа",
+      "alternative_questions": [
+        "Гялайлаа",
+        "Маш их баярлалаа",
+        "Thanks",
+        "Ойлголоо баярлалаа"
+      ]
+    },
+    "knowledge_base": {
+      "static_answer": "Зүгээр дээ, танд тусалж чадсандаа баяртай байна. Өөр асуух зүйл байна уу?",
+      "pdf_context": []
+    },
+    "live_data_mapping": null
+  }
+]
